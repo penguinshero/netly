@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"net"
@@ -43,6 +42,10 @@ var (
 
 	promptStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFF00"))
+
+	warningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFA500")).
+			Bold(true)
 )
 
 type mode int
@@ -65,7 +68,6 @@ type model struct {
 	currentStep int
 }
 
-type tickMsg time.Time
 type connectionMsg struct {
 	conn net.Conn
 	err  error
@@ -102,6 +104,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "enter":
 			return m.handleInput()
+		case "esc":
+			if m.mode != modeMenu && !m.loading {
+				m.mode = modeMenu
+				m.currentStep = 0
+				m.textInput.SetValue("")
+				m.textInput.Placeholder = "Enter choice..."
+				m.err = nil
+				return m, nil
+			}
 		}
 
 	case spinner.TickMsg:
@@ -115,12 +126,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = false
 			return m, nil
 		}
-		// Connection successful, start interactive mode
 		go m.handleConnection(msg.conn)
 		return m, tea.Quit
-
-	case tickMsg:
-		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -213,7 +220,6 @@ func (m model) startClient() tea.Cmd {
 func (m model) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// Bidirectional communication
 	go func() {
 		io.Copy(os.Stdout, conn)
 	}()
@@ -224,7 +230,6 @@ func (m model) handleConnection(conn net.Conn) {
 func (m model) View() string {
 	var s strings.Builder
 
-	// Banner
 	banner := `
     _   __     __  __     
    / | / /__  / /_/ /_  __
@@ -241,7 +246,7 @@ func (m model) View() string {
 	if m.err != nil {
 		s.WriteString(errorStyle.Render(fmt.Sprintf("✗ Error: %v", m.err)))
 		s.WriteString("\n\n")
-		s.WriteString(promptStyle.Render("Press 'q' to quit"))
+		s.WriteString(warningStyle.Render("Press 'ESC' to return to menu or 'q' to quit"))
 		return s.String()
 	}
 
@@ -288,7 +293,7 @@ func (m model) View() string {
 	}
 
 	s.WriteString("\n\n")
-	s.WriteString(subtitleStyle.Render("Press 'Ctrl+C' or 'q' to quit"))
+	s.WriteString(subtitleStyle.Render("Press 'ESC' for menu | 'Ctrl+C' or 'q' to quit"))
 
 	return s.String()
 }
@@ -297,15 +302,29 @@ var rootCmd = &cobra.Command{
 	Use:   "netly",
 	Short: "Modern and fast netcat alternative",
 	Long: `Netly - A modern, fast, and beautiful netcat alternative built with Go
-	
-Created by penguinshero for ethical hacking and network testing.`,
+
+Created by penguinshero for ethical hacking and network testing.
+Netly provides an intuitive interface for TCP connections with both
+interactive GUI and direct command-line modes.
+
+Features:
+  • Fast and efficient TCP connections
+  • Beautiful terminal UI powered by Bubble Tea
+  • Server (Listen) and Client (Connect) modes
+  • Interactive and direct command modes
+  • Cross-platform support`,
 	Version: version,
 }
 
 var listenCmd = &cobra.Command{
 	Use:   "listen [port]",
 	Short: "Start listening mode (server)",
-	Args:  cobra.ExactArgs(1),
+	Long: `Start a TCP server that listens on the specified port.
+Once a connection is established, you can send and receive data.
+
+Example:
+  netly listen 4444`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		port := args[0]
 		runDirectServer(port)
@@ -315,7 +334,13 @@ var listenCmd = &cobra.Command{
 var connectCmd = &cobra.Command{
 	Use:   "connect [host] [port]",
 	Short: "Connect to remote host (client)",
-	Args:  cobra.ExactArgs(2),
+	Long: `Connect to a remote TCP server using the specified host and port.
+Once connected, you can send and receive data.
+
+Example:
+  netly connect 192.168.1.100 4444
+  netly connect example.com 8080`,
+	Args: cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		host := args[0]
 		port := args[1]
@@ -326,6 +351,9 @@ var connectCmd = &cobra.Command{
 var interactiveCmd = &cobra.Command{
 	Use:   "interactive",
 	Short: "Start interactive mode with GUI",
+	Long: `Launch Netly in interactive mode with a beautiful terminal GUI.
+This mode provides a menu-driven interface to easily switch between
+server and client modes.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		p := tea.NewProgram(initialModel())
 		if _, err := p.Run(); err != nil {
@@ -386,7 +414,6 @@ func init() {
 
 func main() {
 	if len(os.Args) == 1 {
-		// No arguments, start interactive mode
 		p := tea.NewProgram(initialModel())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -399,4 +426,3 @@ func main() {
 		}
 	}
 }
-
