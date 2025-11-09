@@ -22,12 +22,11 @@ var (
 	// Styles
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#00FF00")).
-			Background(lipgloss.Color("#1a1a1a")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("#00FF00"))
 
 	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+			Foreground(lipgloss.Color("#888888")).
+			Italic(true)
 
 	infoStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#00BFFF"))
@@ -41,11 +40,19 @@ var (
 			Bold(true)
 
 	promptStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFF00"))
+			Foreground(lipgloss.Color("#FFFF00")).
+			Bold(true)
 
 	warningStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFA500")).
 			Bold(true)
+
+	highlightStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF00FF")).
+			Bold(true)
+
+	dimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#666666"))
 )
 
 type mode int
@@ -66,6 +73,9 @@ type model struct {
 	host        string
 	port        string
 	currentStep int
+	showHelp    bool
+	width       int
+	height      int
 }
 
 type connectionMsg struct {
@@ -98,13 +108,22 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "enter":
-			return m.handleInput()
+			if !m.showHelp {
+				return m, tea.Quit
+			}
 		case "esc":
+			if m.showHelp {
+				m.showHelp = false
+				return m, nil
+			}
 			if m.mode != modeMenu && !m.loading {
 				m.mode = modeMenu
 				m.currentStep = 0
@@ -112,6 +131,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Placeholder = "Enter choice..."
 				m.err = nil
 				return m, nil
+			}
+		case "h", "?":
+			if m.mode == modeMenu && !m.loading {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+		case "enter":
+			if !m.showHelp {
+				return m.handleInput()
 			}
 		}
 
@@ -228,19 +256,20 @@ func (m model) handleConnection(conn net.Conn) {
 }
 
 func (m model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
 	var s strings.Builder
 
 	banner := `
-    _   __     __  __     
-   / | / /__  / /_/ /_  __
-  /  |/ / _ \/ __/ / / / /
- / /|  /  __/ /_/ / /_/ / 
-/_/ |_/\___/\__/_/\__, /  
-                 /____/   
-`
+  ╔╗╔╔═╗╔╦╗╦  ╦ ╦
+  ║║║║╣  ║ ║  ╚╦╝
+  ╝╚╝╚═╝ ╩ ╩═╝ ╩ `
+	
 	s.WriteString(titleStyle.Render(banner))
 	s.WriteString("\n")
-	s.WriteString(subtitleStyle.Render(fmt.Sprintf("Modern Netcat Alternative v%s | by %s", version, author)))
+	s.WriteString(subtitleStyle.Render(fmt.Sprintf("   Modern Netcat Alternative v%s | by %s", version, author)))
 	s.WriteString("\n\n")
 
 	if m.err != nil {
@@ -257,43 +286,98 @@ func (m model) View() string {
 
 	switch m.mode {
 	case modeMenu:
-		s.WriteString(infoStyle.Render("╔═══════════════════════════════════════╗"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("║         SELECT OPERATION MODE         ║"))
+		s.WriteString(infoStyle.Render("          SELECT OPERATION MODE"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("╚═══════════════════════════════════════╝"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n\n")
 
-		s.WriteString("  " + successStyle.Render("1.") + " Listen Mode (Server)    - Accept incoming connections\n")
-		s.WriteString("  " + successStyle.Render("2.") + " Connect Mode (Client)   - Connect to remote host\n")
-		s.WriteString("  " + errorStyle.Render("3.") + " Exit\n\n")
+		s.WriteString("  " + successStyle.Render("1.") + " " + highlightStyle.Render("Listen Mode") + dimStyle.Render(" (Server)") + "   - Accept incoming connections\n")
+		s.WriteString("  " + successStyle.Render("2.") + " " + highlightStyle.Render("Connect Mode") + dimStyle.Render(" (Client)") + " - Connect to remote host\n")
+		s.WriteString("  " + errorStyle.Render("3.") + " " + errorStyle.Render("Exit") + "\n\n")
 
 		s.WriteString(promptStyle.Render("→ ") + m.textInput.View())
+		s.WriteString("\n\n")
+		s.WriteString(dimStyle.Render("Press 'h' or '?' for help | 'Ctrl+C' or 'q' to quit"))
 
 	case modeServer:
-		s.WriteString(infoStyle.Render("╔═══════════════════════════════════════╗"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("║          LISTEN MODE (SERVER)         ║"))
+		s.WriteString(successStyle.Render("          LISTEN MODE") + dimStyle.Render(" (SERVER)"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("╚═══════════════════════════════════════╝"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n\n")
+		s.WriteString(dimStyle.Render("  Will listen for incoming TCP connections\n"))
+		s.WriteString(dimStyle.Render("  Example: 4444, 8080, 9999\n\n"))
 		s.WriteString(promptStyle.Render("→ ") + m.textInput.View())
+		s.WriteString("\n\n")
+		s.WriteString(dimStyle.Render("Press 'ESC' for menu | 'Ctrl+C' to quit"))
 
 	case modeClient:
-		s.WriteString(infoStyle.Render("╔═══════════════════════════════════════╗"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("║         CONNECT MODE (CLIENT)         ║"))
+		s.WriteString(successStyle.Render("          CONNECT MODE") + dimStyle.Render(" (CLIENT)"))
 		s.WriteString("\n")
-		s.WriteString(infoStyle.Render("╚═══════════════════════════════════════╝"))
+		s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 		s.WriteString("\n\n")
-		if m.currentStep == 2 {
-			s.WriteString(fmt.Sprintf("  Target: %s\n\n", infoStyle.Render(m.host)))
+		if m.currentStep == 1 {
+			s.WriteString(dimStyle.Render("  Enter target host IP or domain\n"))
+			s.WriteString(dimStyle.Render("  Example: 192.168.1.100, example.com\n\n"))
+		} else if m.currentStep == 2 {
+			s.WriteString(fmt.Sprintf("  Target: %s\n", highlightStyle.Render(m.host)))
+			s.WriteString(dimStyle.Render("  Enter target port\n"))
+			s.WriteString(dimStyle.Render("  Example: 4444, 8080, 9999\n\n"))
 		}
 		s.WriteString(promptStyle.Render("→ ") + m.textInput.View())
+		s.WriteString("\n\n")
+		s.WriteString(dimStyle.Render("Press 'ESC' for menu | 'Ctrl+C' to quit"))
 	}
 
-	s.WriteString("\n\n")
-	s.WriteString(subtitleStyle.Render("Press 'ESC' for menu | 'Ctrl+C' or 'q' to quit"))
+	return s.String()
+}
+
+func (m model) renderHelp() string {
+	var s strings.Builder
+
+	s.WriteString(titleStyle.Render("\n  NETLY - HELP & USAGE GUIDE\n"))
+	s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"))
+
+	s.WriteString(highlightStyle.Render("📖 INTERACTIVE MODE COMMANDS:\n\n"))
+	
+	s.WriteString(successStyle.Render("  1-3      ") + "Select menu option\n")
+	s.WriteString(successStyle.Render("  h / ?    ") + "Show this help screen\n")
+	s.WriteString(successStyle.Render("  ESC      ") + "Return to main menu\n")
+	s.WriteString(successStyle.Render("  Ctrl+C/q ") + "Quit application\n\n")
+
+	s.WriteString(highlightStyle.Render("💻 CLI MODE COMMANDS:\n\n"))
+	
+	s.WriteString(successStyle.Render("  netly listen [port]\n"))
+	s.WriteString(dimStyle.Render("    Start server on specified port\n"))
+	s.WriteString(dimStyle.Render("    Example: netly listen 4444\n\n"))
+	
+	s.WriteString(successStyle.Render("  netly connect [host] [port]\n"))
+	s.WriteString(dimStyle.Render("    Connect to remote host\n"))
+	s.WriteString(dimStyle.Render("    Example: netly connect 192.168.1.100 4444\n\n"))
+
+	s.WriteString(successStyle.Render("  netly interactive\n"))
+	s.WriteString(dimStyle.Render("    Start GUI mode (default)\n\n"))
+
+	s.WriteString(highlightStyle.Render("🔧 COMMON USE CASES:\n\n"))
+	
+	s.WriteString(warningStyle.Render("  File Transfer:\n"))
+	s.WriteString(dimStyle.Render("    Receiver: netly listen 4444 > file.txt\n"))
+	s.WriteString(dimStyle.Render("    Sender:   cat file.txt | netly connect IP 4444\n\n"))
+	
+	s.WriteString(warningStyle.Render("  Chat Server:\n"))
+	s.WriteString(dimStyle.Render("    Server:   netly listen 8080\n"))
+	s.WriteString(dimStyle.Render("    Client:   netly connect server-ip 8080\n\n"))
+
+	s.WriteString(warningStyle.Render("  Port Testing:\n"))
+	s.WriteString(dimStyle.Render("    Test:     echo \"test\" | netly connect target-ip 80\n\n"))
+
+	s.WriteString(infoStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"))
+	s.WriteString(dimStyle.Render("\nPress 'ESC' to return to menu\n"))
 
 	return s.String()
 }
@@ -373,8 +457,9 @@ func runDirectServer(port string) {
 	}
 	defer listener.Close()
 
-	fmt.Printf("%s Listening on port %s\n", successStyle.Render("✓"), port)
-	fmt.Printf("%s Waiting for connection...\n\n", infoStyle.Render("→"))
+	fmt.Printf("%s Listening on 0.0.0.0:%s\n", successStyle.Render("✓"), port)
+	fmt.Printf("%s Waiting for connection...\n", infoStyle.Render("⏳"))
+	fmt.Printf("%s Press Ctrl+C to stop\n\n", dimStyle.Render("ℹ"))
 
 	conn, err := listener.Accept()
 	if err != nil {
@@ -383,10 +468,27 @@ func runDirectServer(port string) {
 	}
 	defer conn.Close()
 
-	fmt.Printf("%s Connection from %s\n\n", successStyle.Render("✓"), conn.RemoteAddr())
+	fmt.Printf("%s Connection established!\n", successStyle.Render("✓"))
+	fmt.Printf("%s Remote: %s\n", infoStyle.Render("→"), conn.RemoteAddr())
+	fmt.Printf("%s Local:  %s\n\n", infoStyle.Render("→"), conn.LocalAddr())
+	fmt.Printf("%s Session started. Type to send data...\n\n", highlightStyle.Render("━━━"))
 
-	go io.Copy(os.Stdout, conn)
-	io.Copy(conn, os.Stdin)
+	done := make(chan bool)
+
+	// Remote to local
+	go func() {
+		io.Copy(os.Stdout, conn)
+		done <- true
+	}()
+
+	// Local to remote
+	go func() {
+		io.Copy(conn, os.Stdin)
+		done <- true
+	}()
+
+	<-done
+	fmt.Printf("\n%s Connection closed.\n", warningStyle.Render("✗"))
 }
 
 func runDirectClient(host, port string) {
@@ -394,15 +496,32 @@ func runDirectClient(host, port string) {
 
 	conn, err := net.DialTimeout("tcp", host+":"+port, 10*time.Second)
 	if err != nil {
-		fmt.Printf("%s Error: %v\n", errorStyle.Render("✗"), err)
+		fmt.Printf("%s Connection failed: %v\n", errorStyle.Render("✗"), err)
 		os.Exit(1)
 	}
 	defer conn.Close()
 
-	fmt.Printf("%s Connected successfully!\n\n", successStyle.Render("✓"))
+	fmt.Printf("%s Connected successfully!\n", successStyle.Render("✓"))
+	fmt.Printf("%s Remote: %s\n", infoStyle.Render("→"), conn.RemoteAddr())
+	fmt.Printf("%s Local:  %s\n\n", infoStyle.Render("→"), conn.LocalAddr())
+	fmt.Printf("%s Session started. Type to send data...\n\n", highlightStyle.Render("━━━"))
 
-	go io.Copy(os.Stdout, conn)
-	io.Copy(conn, os.Stdin)
+	done := make(chan bool)
+
+	// Remote to local
+	go func() {
+		io.Copy(os.Stdout, conn)
+		done <- true
+	}()
+
+	// Local to remote
+	go func() {
+		io.Copy(conn, os.Stdin)
+		done <- true
+	}()
+
+	<-done
+	fmt.Printf("\n%s Connection closed.\n", warningStyle.Render("✗"))
 }
 
 func init() {
